@@ -1,41 +1,77 @@
 package com.porochest.khargiyar
 
-import android.content.ContentValues
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
+import androidx.room.*
 import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
-data class Expense(val id: Long, val amount: Long, val title: String, val source: String, val created: Long)
+@Entity(tableName = "expenses")
+data class Expense(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val amount: Long,
+    val title: String,
+    val source: String = "manual",
+    val created: Long = System.currentTimeMillis()
+)
 
-class ExpenseDb(ctx: Context) : SQLiteOpenHelper(ctx, "khargiyar.db", null, 1) {
-    override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE expenses(id INTEGER PRIMARY KEY AUTOINCREMENT, amount INTEGER NOT NULL, title TEXT NOT NULL, source TEXT NOT NULL, created INTEGER NOT NULL)")
+@Dao
+interface ExpenseDao {
+    @Insert
+    fun insert(expense: Expense)
+
+    @Query("SELECT * FROM expenses ORDER BY created DESC")
+    fun all(): List<Expense>
+
+    @Query("SELECT SUM(amount) FROM expenses WHERE created >= :since")
+    fun sumSince(since: Long): Long
+}
+
+@Database(entities = [Expense::class], version = 1, exportSchema = false)
+abstract class ExpenseDb : RoomDatabase() {
+    abstract fun dao(): ExpenseDao
+
+    // متدهای کمکی برای دسترسی سریع در MainActivity
+    fun add(amount: Long, title: String, source: String = "manual") {
+        dao().insert(Expense(amount = amount, title = title, source = source))
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
-    fun add(amount: Long, title: String, source: String = "voice") {
-        writableDatabase.insert("expenses", null, ContentValues().apply {
-            put("amount", amount); put("title", title); put("source", source); put("created", System.currentTimeMillis())
-        })
-    }
-    fun all(): List<Expense> {
-        val out = mutableListOf<Expense>()
-        readableDatabase.rawQuery("SELECT id,amount,title,source,created FROM expenses ORDER BY created DESC", null).use { c ->
-            while (c.moveToNext()) out.add(Expense(c.getLong(0), c.getLong(1), c.getString(2), c.getString(3), c.getLong(4)))
-        }
-        return out
-    }
-    fun sumSince(start: Long): Long = readableDatabase.rawQuery("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE created>=?", arrayOf(start.toString())).use { c -> if(c.moveToFirst()) c.getLong(0) else 0L }
-    fun delete(id: Long) { writableDatabase.delete("expenses", "id=?", arrayOf(id.toString())) }
+
+    fun all(): List<Expense> = dao().all()
+    fun sumSince(since: Long): Long = dao().sumSince(since)
+
     companion object {
+        @Volatile private var INSTANCE: ExpenseDb? = null
+        fun get(context: Context): ExpenseDb {
+            return INSTANCE ?: synchronized(this) {
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    ExpenseDb::class.java,
+                    "khargiyar.db"
+                ).build()
+                INSTANCE = instance
+                instance
+            }
+        }
+
+        // متدهای استاتیک برای محاسبه زمان
         fun startOf(period: String): Long {
-            val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY,0); set(Calendar.MINUTE,0); set(Calendar.SECOND,0); set(Calendar.MILLISECOND,0) }
-            when(period) { "week" -> { cal.firstDayOfWeek = Calendar.SATURDAY; cal.set(Calendar.DAY_OF_WEEK, Calendar.SATURDAY) }; "month" -> cal.set(Calendar.DAY_OF_MONTH,1); "year" -> cal.set(Calendar.DAY_OF_YEAR,1) }
+            val cal = Calendar.getInstance()
+            when (period) {
+                "day" -> cal.set(Calendar.HOUR_OF_DAY, 0)
+                "week" -> cal.add(Calendar.DAY_OF_YEAR, -7)
+                "month" -> cal.add(Calendar.MONTH, -1)
+                "year" -> cal.add(Calendar.YEAR, -1)
+            }
+            if (period == "day") {
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+            }
             return cal.timeInMillis
         }
-        fun date(ts: Long): String = SimpleDateFormat("yyyy/MM/dd  HH:mm", Locale("fa","IR")).format(Date(ts))
+
+        fun date(timestamp: Long): String {
+            val sdf = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault())
+            return sdf.format(Date(timestamp))
+        }
     }
 }
