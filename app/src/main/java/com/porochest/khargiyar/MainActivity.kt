@@ -22,7 +22,7 @@ class MainActivity : Activity() {
     private val voiceRequest = 44
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        db=ExpenseDb(this)
+        db=ExpenseDb.get(this)
         requestPermissionsIfNeeded()
         buildUi()
         handleIntent(intent)
