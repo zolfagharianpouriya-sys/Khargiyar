@@ -1,47 +1,28 @@
-package ir.pouriya.khargiyar
+package com.porochest.khargiyar
 
-import java.util.Locale
+object VoiceParser {
+    // یک پارسر ساده برای استخراج مبلغ و عنوان از متن گفتار
+    fun parse(text: String): Pair<Long, String>? {
+        // پیدا کردن اعداد در متن (با پشتیبانی از اعداد فارسی)
+        val normalized = text.replace("۰","0").replace("۱","1").replace("۲","2")
+            .replace("۳","3").replace("۴","4").replace("۵","5")
+            .replace("۶","6").replace("۷","7").replace("۸","8").replace("۹","9")
+        
+        val numberRegex = Regex("\\d+")
+        val match = numberRegex.find(normalized) ?: return null
+        var amount = match.value.toLongOrNull() ?: return null
 
-data class ParsedExpense(val amount: Long, val title: String)
-
-object VoiceExpenseParser {
-    private val digitAmount = Regex("""(\d+(?:\.\d+)?)\s*(میلیون|هزار|تومن|تومان)?""")
-
-    fun parse(raw: String): ParsedExpense? {
-        val normalized = PersianNumbers.normalize(raw.lowercase(Locale("fa", "IR")))
-            .replace("تومن", "تومان")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-
-        val numericMatches = digitAmount.findAll(normalized).toList()
-        val numeric = numericMatches.maxByOrNull { it.range.last - it.range.first }
-
-        val parsed: Pair<Long, IntRange>? = if (numeric != null) {
-            val n = numeric.groupValues[1].toDoubleOrNull() ?: return null
-            val unit = numeric.groupValues[2]
-            val amount = when {
-                unit.contains("میلیون") -> (n * 1_000_000).toLong()
-                unit.contains("هزار") -> (n * 1_000).toLong()
-                else -> n.toLong()
-            }
-            amount to numeric.range
-        } else {
-            val wordsAmount = PersianNumberWords.parse(normalized) ?: return null
-            val hit = Regex("(صفر|یک|دو|سه|چهار|پنج|شش|شیش|هفت|هشت|نه|ده|یازده|دوازده|سیزده|چهارده|پانزده|شانزده|هفده|هجده|نوزده|بیست|سی|چهل|پنجاه|شصت|هفتاد|هشتاد|نود|صد|دویست|سیصد|چهارصد|پانصد|ششصد|هفتصد|هشتصد|نهصد)(\\s+(و\\s+)?(صفر|یک|دو|سه|چهار|پنج|شش|هفت|هشت|نه|ده|یازده|دوازده|سیزده|چهارده|پانزده|شانزده|هفده|هجده|نوزده|بیست|سی|چهل|پنجاه|شصت|هفتاد|هشتاد|نود|صد|دویست|سیصد|چهارصد|پانصد|ششصد|هفتصد|هشتصد|نهصد|هزار|میلیون|میلیارد))*").find(normalized)
-            wordsAmount to (hit?.range ?: 0..normalized.length)
+        // بررسی کلمات هزار، میلیون و تومان
+        if (normalized.contains("هزار") || normalized.contains("تومن") || normalized.contains("تومان")) {
+            if (normalized.contains("هزار")) amount *= 1000
         }
-
-        var title = (normalized.substring(0, parsed.second.first) + " " +
-                normalized.substring((parsed.second.last + 1).coerceAtMost(normalized.length)))
-            .replace("تومان", "")
-            .replace("هزار", "")
-            .replace("میلیون", "")
-            .replace("میلیارد", "")
-            .replace(Regex("^(پول|هزینه|خرید|برای)\\s+"), "")
-            .replace(Regex("\\s+"), " ")
+        
+        // حذف عدد و کلمات کلیدی از متن برای پیدا کردن عنوان
+        val title = normalized.replace(match.value, "")
+            .replace("هزار", "").replace("تومن", "").replace("تومان", "")
             .trim()
+            .ifBlank { "هزینه" }
 
-        if (title.isBlank()) title = "هزینه"
-        return ParsedExpense(parsed.first, title)
+        return Pair(amount, title)
     }
 }
